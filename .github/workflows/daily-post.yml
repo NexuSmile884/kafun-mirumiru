@@ -1,0 +1,35 @@
+name: 花粉みるみる Daily Post
+
+on:
+  schedule:
+    # 毎朝 7:00 JST = 22:00 UTC (前日)
+    - cron: '0 22 * * *'
+  workflow_dispatch: # 手動実行用
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: x-bot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Post to X
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          CITY_CODE: '11203'
+          CITY_NAME: '川口市'
+          PREF_NAME: '埼玉県'
+        run: node post.js

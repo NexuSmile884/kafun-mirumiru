@@ -1,0 +1,14 @@
+{
+  "name": "kafun-mirumiru-bot",
+  "version": "1.0.0",
+  "description": "花粉みるみる X自動投稿ボット",
+  "main": "post.js",
+  "scripts": {
+    "post": "node post.js",
+    "dry": "DRY_RUN=true node post.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "twitter-api-v2": "^1.18.2"
+  }
+}
