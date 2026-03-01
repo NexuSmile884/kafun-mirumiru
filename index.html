@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>花粉なう｜リアルタイム花粉飛散情報</title>
+    <meta name="description" content="ポールンロボ観測データによるリアルタイム花粉飛散情報。埼玉・東京・神奈川・千葉の花粉数を1時間ごとに自動更新。">
+    <meta name="keywords" content="花粉, 花粉情報, 花粉飛散, リアルタイム, 川口市, 埼玉, 東京, ポールンロボ">
+
+    <!-- OGP -->
+    <meta property="og:title" content="花粉なう｜リアルタイム花粉飛散情報">
+    <meta property="og:description" content="ポールンロボ観測データで花粉飛散数をリアルタイムチェック。埼玉・東京・神奈川・千葉対応。">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="ja_JP">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="花粉なう｜リアルタイム花粉飛散情報">
+    <meta name="twitter:description" content="ポールンロボ観測データで花粉飛散数をリアルタイムチェック">
+
+    <!-- Favicon (emoji fallback) -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌳</text></svg>">
+
+    <!-- Google Analytics 4 -->
+    <!-- TODO: G-XXXXXXXXXX を実際の計測IDに差し替え -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', 'G-XXXXXXXXXX');
+    </script>
+
+    <!-- Google AdSense -->
+    <!-- TODO: ca-pub-XXXXXXXXXXXXXXXX を実際のパブリッシャーIDに差し替え -->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXXXXXXXXXX"
+        crossorigin="anonymous"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700;900&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-inner">
+                <div class="brand">
+                    <span class="brand-icon">🌳</span>
+                    <span class="brand-text">花粉なう</span>
+                </div>
+                <div class="update-info" id="updateInfo">--:-- 更新</div>
+            </div>
+        </header>
+
+        <!-- City Selector -->
+        <section class="city-bar">
+            <div class="city-bar-inner">
+                <label class="city-label" for="citySelect">📍 地域を選択</label>
+                <div class="city-controls">
+                    <select id="citySelect" class="city-select">
+                        <optgroup label="埼玉県">
+                            <option value="11203" selected>川口市</option>
+                            <option value="11101">さいたま市西区</option>
+                            <option value="11106">さいたま市南区</option>
+                            <option value="11210">所沢市</option>
+                            <option value="11214">春日部市</option>
+                            <option value="11227">越谷市</option>
+                        </optgroup>
+                        <optgroup label="東京都">
+                            <option value="13101">千代田区</option>
+                            <option value="13103">港区</option>
+                            <option value="13104">新宿区</option>
+                            <option value="13113">渋谷区</option>
+                            <option value="13116">豊島区</option>
+                            <option value="13120">練馬区</option>
+                            <option value="13201">八王子市</option>
+                        </optgroup>
+                        <optgroup label="神奈川県">
+                            <option value="14101">横浜市鶴見区</option>
+                            <option value="14131">川崎市川崎区</option>
+                            <option value="14150">相模原市緑区</option>
+                        </optgroup>
+                        <optgroup label="千葉県">
+                            <option value="12101">千葉市中央区</option>
+                            <option value="12207">船橋市</option>
+                            <option value="12227">柏市</option>
+                        </optgroup>
+                        <optgroup label="その他">
+                            <option value="custom">🔧 コードを入力...</option>
+                        </optgroup>
+                    </select>
+                    <div class="custom-code-wrap" id="customCodeWrap" style="display:none">
+                        <input type="text" id="customCode" class="custom-code-input" placeholder="例: 27128"
+                            maxlength="5" pattern="\d{5}">
+                        <button class="custom-code-btn" id="customCodeBtn">取得</button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Hero: Current Level -->
+        <section class="hero" id="hero">
+            <div class="hero-level" id="heroLevel">
+                <div class="hero-emoji" id="heroEmoji">⏳</div>
+                <div class="hero-count-wrap">
+                    <span class="hero-count" id="heroCount">--</span>
+                    <span class="hero-unit">個（本日合計）</span>
+                </div>
+                <div class="hero-label" id="heroLabel">取得中…</div>
+            </div>
+            <div class="hero-bar-wrap">
+                <div class="hero-bar">
+                    <div class="hero-bar-fill" id="heroBarFill"></div>
+                </div>
+                <div class="hero-bar-labels">
+                    <span>少ない</span><span>やや多い</span><span>多い</span><span>非常に多い</span>
+                </div>
+            </div>
+            <div class="hero-trend" id="heroTrend"></div>
+        </section>
+
+        <!-- Stats Strip -->
+        <section class="stats-strip">
+            <div class="stat-item">
+                <div class="stat-num" id="statTodayTotal">--</div>
+                <div class="stat-name">本日合計</div>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-item">
+                <div class="stat-num" id="statPeak">--</div>
+                <div class="stat-name" id="statPeakTime">ピーク</div>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-item">
+                <div class="stat-num" id="statYesterday">--</div>
+                <div class="stat-name">昨日合計</div>
+            </div>
+        </section>
+
+        <!-- Ad Slot 1: Between stats and chart -->
+        <div class="ad-slot" id="adSlot1">
+            <ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+                data-ad-slot="XXXXXXXXXX" data-ad-format="auto" data-full-width-responsive="true"></ins>
+            <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+        </div>
+
+        <!-- Chart -->
+        <section class="chart-section">
+            <div class="section-head">
+                <h2>時間別推移</h2>
+                <div class="tab-group">
+                    <button class="tab active" data-range="today">今日</button>
+                    <button class="tab" data-range="yesterday">昨日</button>
+                    <button class="tab" data-range="week">7日間</button>
+                </div>
+            </div>
+            <div class="chart-wrap">
+                <canvas id="pollenChart"></canvas>
+            </div>
+        </section>
+
+        <!-- Hourly List -->
+        <section class="hourly-section" id="hourlySection">
+            <h2 class="section-title">今日の1時間ごとの花粉数</h2>
+            <div class="hourly-list" id="hourlyList">
+                <div class="hourly-loading">データを取得中…</div>
+            </div>
+        </section>
+
+        <!-- Ad Slot 2: After hourly list -->
+        <div class="ad-slot" id="adSlot2">
+            <ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX"
+                data-ad-slot="XXXXXXXXXX" data-ad-format="horizontal" data-full-width-responsive="true"></ins>
+            <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>出典: <a href="https://weathernews.jp/" target="_blank" rel="noopener">ウェザーニューズ</a> ポールンロボ観測網 ｜ 30分ごと自動更新
+            </p>
+            <p class="footer-links">
+                <a href="https://wxtech.weathernews.com/products/data/services/opendata-pollen/" target="_blank"
+                    rel="noopener">データについて</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
