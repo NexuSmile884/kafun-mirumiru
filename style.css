@@ -210,6 +210,16 @@ body {
     gap: 4px;
 }
 
+.hero-date {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-sub);
+    margin-bottom: 12px;
+    letter-spacing: 0.05em;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+}
+
 .hero-emoji {
     font-size: 3.5rem;
     line-height: 1;
@@ -307,9 +317,9 @@ body {
 }
 
 .stat-num {
-    font-size: 1.5rem;
+    font-size: 1.35rem;
     font-weight: 900;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.05em;
 }
 
 .stat-name {
@@ -562,5 +572,9 @@ body {
 
     .hero-emoji {
         font-size: 2.8rem;
+    }
+
+    .stat-num {
+        font-size: 1.1rem;
     }
 }

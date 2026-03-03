@@ -71,8 +71,9 @@ let timer = null;
 async function load() {
     try {
         const today = dayStart();
-        const weekAgo = addDays(today, -7);
-        data = await fetchPollen(cityCode, weekAgo, today);
+        // 常に2月1日から取得（今季累計用）
+        const seasonStart = new Date(today.getFullYear(), 1, 1);
+        data = await fetchPollen(cityCode, seasonStart, today);
         render();
     } catch (e) {
         console.error(e);
@@ -103,6 +104,11 @@ function render() {
     renderStats(todayRows, yesterdayRows);
     renderChart();
     renderHourly(today);
+
+    const yyyy = now.getFullYear();
+    const mm = now.getMonth() + 1;
+    const dd = now.getDate();
+    document.getElementById('heroDate').textContent = `${yyyy}/${mm}/${dd}（今シーズンの花粉情報）`;
 
     document.getElementById('updateInfo').textContent =
         `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} 更新`;
@@ -155,6 +161,9 @@ function renderStats(todayRows, yesterdayRows) {
 
     const yTotal = yesterdayRows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
     document.getElementById('statYesterday').textContent = yTotal.toLocaleString();
+
+    const seasonTotal = data.reduce((s, d) => s + Math.max(0, d.pollen), 0);
+    document.getElementById('statSeason').textContent = seasonTotal.toLocaleString();
 }
 
 function renderChart() {
