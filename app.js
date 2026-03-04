@@ -48,16 +48,31 @@ const dayStart = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.g
 
 // ========== API ==========
 async function fetchPollen(cityCode, start, end) {
-    const url = `${CONFIG.API_BASE}?citycode=${cityCode}&start=${fmt(start)}&end=${fmt(end)}`;
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(`API ${r.status}`);
-    const csv = await r.text();
-    const lines = csv.trim().split('\n');
-    if (lines.length <= 1) return [];
-    return lines.slice(1).map(l => {
-        const [code, ds, ps] = l.split(',');
-        return { citycode: code, date: new Date(ds), pollen: parseInt(ps, 10) };
-    });
+    let currentStart = new Date(start);
+    let allData = [];
+
+    while (currentStart <= end) {
+        let currentEnd = addDays(currentStart, 30);
+        if (currentEnd > end) currentEnd = end;
+
+        const url = `${CONFIG.API_BASE}?citycode=${cityCode}&start=${fmt(currentStart)}&end=${fmt(currentEnd)}`;
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(`API ${r.status}`);
+        const csv = await r.text();
+        const lines = csv.trim().split('\n');
+
+        if (lines.length > 1) {
+            allData = allData.concat(lines.slice(1).map(l => {
+                const [code, ds, ps] = l.split(',');
+                return { citycode: code, date: new Date(ds), pollen: parseInt(ps, 10) };
+            }));
+        }
+        currentStart = addDays(currentEnd, 1);
+    }
+
+    const unique = new Map();
+    allData.forEach(d => unique.set(d.date.getTime(), d));
+    return Array.from(unique.values()).sort((a, b) => a.date - b.date);
 }
 
 // ========== State ==========
