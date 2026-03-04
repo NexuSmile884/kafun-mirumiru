@@ -71,26 +71,25 @@ function buildPost(yesterdayRows, todayRows) {
         if (d.pollen > yPeakVal) { yPeakVal = d.pollen; yPeakH = d.date.getHours(); }
     });
 
-    // Today so far (early morning data)
+    // Today so far
     const tTotal = todayRows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
 
-    // Forecast: compare today's early hours with yesterday's same hours
-    const currentHour = now.getHours();
-    const ySameTimeTotal = yesterdayRows
-        .filter(d => d.date.getHours() < currentHour)
-        .reduce((s, d) => s + Math.max(0, d.pollen), 0);
-
+    // Forecast: compare yesterday with day-before-yesterday trend
+    // At 7am JST, early morning data is essentially 0, so we use
+    // yesterday's total vs historical trend to predict today
     let forecastText = '';
-    if (tTotal > 0 && ySameTimeTotal > 0) {
-        const ratio = tTotal / ySameTimeTotal;
-        if (ratio >= 1.5) forecastText = '📈 今日は昨日より多くなりそう！要警戒';
-        else if (ratio >= 0.8) forecastText = '📊 今日も昨日と同程度の見込み';
-        else forecastText = '📉 今日は昨日より少なめの見込み';
-    } else if (tTotal > 0) {
-        const tLevel = getDailyLevel(tTotal * (24 / Math.max(currentHour, 1)));
-        forecastText = `📊 今日の予想: ${tLevel.label}（早朝${tTotal}個）`;
+    if (yTotal <= 0) {
+        forecastText = '📊 今日も飛散は少ない見込みです';
+    } else if (yTotal <= 30) {
+        forecastText = '📊 今日も少なめの見込み。油断せずに';
+    } else if (yTotal <= 100) {
+        forecastText = '📊 今日もやや多い見込み。マスク推奨';
+    } else if (yTotal <= 200) {
+        forecastText = '📈 今日も多い見込み！しっかり対策を';
+    } else if (yTotal <= 400) {
+        forecastText = '📈 今日も非常に多い見込み！フル装備で';
     } else {
-        forecastText = '📊 今朝はまだ飛散少なめです';
+        forecastText = '🚨 今日も猛烈な飛散の見込み！外出注意';
     }
 
     // Advice based on level

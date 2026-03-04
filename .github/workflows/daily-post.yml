@@ -29,6 +29,7 @@ jobs:
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
+          TZ: 'Asia/Tokyo'
           CITY_CODE: '11203'
           CITY_NAME: '川口市'
           PREF_NAME: '埼玉県'
