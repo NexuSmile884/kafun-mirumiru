@@ -57,10 +57,18 @@ async function fetchPollen(start, end) {
 }
 
 // ========== Build post text ==========
+function getTimeSlot() {
+    const h = new Date().getHours();
+    if (h < 10) return 'morning';
+    if (h < 17) return 'noon';
+    return 'night';
+}
+
 function buildPost(yesterdayRows, todayRows) {
     const now = new Date();
     const month = now.getMonth() + 1;
     const day = now.getDate();
+    const slot = getTimeSlot();
 
     // Yesterday stats
     const yTotal = yesterdayRows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
@@ -71,52 +79,85 @@ function buildPost(yesterdayRows, todayRows) {
         if (d.pollen > yPeakVal) { yPeakVal = d.pollen; yPeakH = d.date.getHours(); }
     });
 
-    // Today so far
+    // Today stats
     const tTotal = todayRows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
+    const tLevel = getDailyLevel(tTotal);
 
-    // Forecast: compare yesterday with day-before-yesterday trend
-    // At 7am JST, early morning data is essentially 0, so we use
-    // yesterday's total vs historical trend to predict today
-    let forecastText = '';
-    if (yTotal <= 0) {
-        forecastText = '📊 今日も飛散は少ない見込みです';
-    } else if (yTotal <= 30) {
-        forecastText = '📊 今日も少なめの見込み。油断せずに';
-    } else if (yTotal <= 100) {
-        forecastText = '📊 今日もやや多い見込み。マスク推奨';
-    } else if (yTotal <= 200) {
-        forecastText = '📈 今日も多い見込み！しっかり対策を';
-    } else if (yTotal <= 400) {
-        forecastText = '📈 今日も非常に多い見込み！フル装備で';
-    } else {
-        forecastText = '🚨 今日も猛烈な飛散の見込み！外出注意';
+    let tPeakVal = 0, tPeakH = 0;
+    todayRows.forEach(d => {
+        if (d.pollen > tPeakVal) { tPeakVal = d.pollen; tPeakH = d.date.getHours(); }
+    });
+
+    // Forecast text based on yesterday
+    function forecastFromYesterday() {
+        if (yTotal <= 0) return '📊 今日も飛散は少ない見込みです';
+        if (yTotal <= 30) return '📊 今日も少なめの見込み。油断せずに';
+        if (yTotal <= 100) return '📊 今日もやや多い見込み。マスク推奨';
+        if (yTotal <= 200) return '📈 今日も多い見込み！しっかり対策を';
+        if (yTotal <= 400) return '📈 今日も非常に多い見込み！フル装備で';
+        return '🚨 今日も猛烈な飛散の見込み！外出注意';
     }
 
-    // Advice based on level
+    // Advice
     const advice = {
-        'なし': '花粉はほぼ飛んでいません。快適な一日を！🌤',
-        '少ない': '少なめですが油断せずに 🌱',
-        'やや多い': '敏感な方はマスク推奨です 😷',
+        'なし': '花粉はほぼなし。快適！🌤',
+        '少ない': '油断せずに 🌱',
+        'やや多い': 'マスク推奨 😷',
         '多い': 'マスク＋メガネで対策を！🥽',
-        '非常に多い': '外出時はフル装備で！洗濯物は室内干しに 🏠',
-        '猛烈': '⚠️ 危険レベル！不要不急の外出は控えましょう 🚫',
+        '非常に多い': 'フル装備で！洗濯物は室内干し 🏠',
+        '猛烈': '⚠️ 不要不急の外出は控えて 🚫',
     };
 
-    const lines = [
-        `🌳 花粉みるみる｜${month}/${day} 朝のレポート`,
-        ``,
-        `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
-        `${yLevel.emoji} 昨日の飛散量: ${yTotal.toLocaleString()}個`,
-        `${yLevel.bar} ${yLevel.label}`,
-        `⏰ ピーク: ${yPeakH}時（${yPeakVal}個/時間）`,
-        ``,
-        forecastText,
-        ``,
-        advice[yLevel.label],
-        ``,
-        `#花粉 #花粉情報 #花粉症 #花粉対策`,
-        `🔗 ${CONFIG.SITE_URL}`,
-    ];
+    let lines = [];
+
+    if (slot === 'morning') {
+        // === 朝のレポート ===
+        lines = [
+            `🌳 花粉みるみる｜${month}/${day} 朝のレポート`,
+            ``,
+            `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
+            `${yLevel.emoji} 昨日の飛散量: ${yTotal.toLocaleString()}個`,
+            `${yLevel.bar} ${yLevel.label}`,
+            `⏰ ピーク: ${yPeakH}時（${yPeakVal}個/時間）`,
+            ``,
+            forecastFromYesterday(),
+            ``,
+            `#花粉 #花粉情報 #花粉症 #花粉対策`,
+            `🔗 ${CONFIG.SITE_URL}`,
+        ];
+    } else if (slot === 'noon') {
+        // === 昼の速報 ===
+        lines = [
+            `🌳 花粉みるみる｜${month}/${day} 昼の速報`,
+            ``,
+            `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
+            `${tLevel.emoji} 午前の飛散量: ${tTotal.toLocaleString()}個`,
+            `${tLevel.bar} ${tLevel.label}`,
+            tPeakVal > 0 ? `⏰ ピーク: ${tPeakH}時（${tPeakVal}個/時間）` : `⏰ まだピークは来ていません`,
+            ``,
+            `午後の外出は${tTotal > 100 ? '要注意⚠️' : tTotal > 30 ? 'マスクを忘れずに😷' : '比較的安心です🌱'}`,
+            ``,
+            `#花粉 #花粉情報 #花粉症 #花粉対策`,
+            `🔗 ${CONFIG.SITE_URL}`,
+        ];
+    } else {
+        // === 夜のまとめ ===
+        lines = [
+            `🌳 花粉みるみる｜${month}/${day} 今日のまとめ`,
+            ``,
+            `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
+            `${tLevel.emoji} 今日の飛散量: ${tTotal.toLocaleString()}個`,
+            `${tLevel.bar} ${tLevel.label}`,
+            tPeakVal > 0 ? `⏰ ピーク: ${tPeakH}時（${tPeakVal}個/時間）` : `⏰ 飛散ピークなし`,
+            ``,
+            `📊 昨日比: ${yTotal > 0 ? (tTotal > yTotal ? `${Math.round(tTotal / yTotal * 100)}%（増加↑）` : `${Math.round(tTotal / yTotal * 100)}%（減少↓）`) : '—'}`,
+            ``,
+            advice[tLevel.label] || advice['なし'],
+            ``,
+            `#花粉 #花粉情報 #花粉症 #花粉対策`,
+            `🔗 ${CONFIG.SITE_URL}`,
+        ];
+    }
 
     return lines.join('\n');
 }

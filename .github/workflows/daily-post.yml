@@ -2,8 +2,12 @@ name: 花粉みるみる Daily Post
 
 on:
   schedule:
-    # 毎朝 7:00 JST = 22:00 UTC (前日)
+    # 朝 7:00 JST = 22:00 UTC (前日)
     - cron: '0 22 * * *'
+    # 昼 12:00 JST = 03:00 UTC
+    - cron: '0 3 * * *'
+    # 夜 20:00 JST = 11:00 UTC
+    - cron: '0 11 * * *'
   workflow_dispatch: # 手動実行用
 
 jobs:
