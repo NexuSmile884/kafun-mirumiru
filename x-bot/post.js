@@ -71,8 +71,27 @@ function buildPost(yesterdayRows, todayRows) {
         if (d.pollen > yPeakVal) { yPeakVal = d.pollen; yPeakH = d.date.getHours(); }
     });
 
-    // Today so far (if any data)
+    // Today so far (early morning data)
     const tTotal = todayRows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
+
+    // Forecast: compare today's early hours with yesterday's same hours
+    const currentHour = now.getHours();
+    const ySameTimeTotal = yesterdayRows
+        .filter(d => d.date.getHours() < currentHour)
+        .reduce((s, d) => s + Math.max(0, d.pollen), 0);
+
+    let forecastText = '';
+    if (tTotal > 0 && ySameTimeTotal > 0) {
+        const ratio = tTotal / ySameTimeTotal;
+        if (ratio >= 1.5) forecastText = '📈 今日は昨日より多くなりそう！要警戒';
+        else if (ratio >= 0.8) forecastText = '📊 今日も昨日と同程度の見込み';
+        else forecastText = '📉 今日は昨日より少なめの見込み';
+    } else if (tTotal > 0) {
+        const tLevel = getDailyLevel(tTotal * (24 / Math.max(currentHour, 1)));
+        forecastText = `📊 今日の予想: ${tLevel.label}（早朝${tTotal}個）`;
+    } else {
+        forecastText = '📊 今朝はまだ飛散少なめです';
+    }
 
     // Advice based on level
     const advice = {
@@ -92,9 +111,11 @@ function buildPost(yesterdayRows, todayRows) {
         `${yLevel.bar} ${yLevel.label}`,
         `⏰ ピーク: ${yPeakH}時（${yPeakVal}個/時間）`,
         ``,
+        forecastText,
+        ``,
         advice[yLevel.label],
         ``,
-        `#花粉 #花粉情報 #${CONFIG.CITY_NAME} #${CONFIG.PREF_NAME}`,
+        `#花粉 #花粉情報 #花粉症 #花粉対策`,
         `🔗 ${CONFIG.SITE_URL}`,
     ];
 
