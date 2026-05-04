@@ -171,8 +171,28 @@ async function postToX(text) {
         accessSecret: process.env.X_ACCESS_TOKEN_SECRET,
     });
 
-    const result = await client.v2.tweet(text);
-    return result;
+    try {
+        const result = await client.v2.tweet(text);
+        return result;
+    } catch (err) {
+        console.error('━━━━━━━━━━ X API Error Detail ━━━━━━━━━━');
+        if (err.code !== undefined) console.error(`HTTP code : ${err.code}`);
+        if (err.data !== undefined) console.error(`Response  : ${JSON.stringify(err.data, null, 2)}`);
+        if (err.errors !== undefined) console.error(`Errors    : ${JSON.stringify(err.errors, null, 2)}`);
+        if (err.rateLimit !== undefined) console.error(`RateLimit : ${JSON.stringify(err.rateLimit)}`);
+        if (err.headers !== undefined) {
+            const h = err.headers;
+            const picked = {
+                'x-rate-limit-remaining': h['x-rate-limit-remaining'],
+                'x-rate-limit-reset': h['x-rate-limit-reset'],
+                'x-access-level': h['x-access-level'],
+                'x-app-limit-24hour-remaining': h['x-app-limit-24hour-remaining'],
+            };
+            console.error(`Headers   : ${JSON.stringify(picked)}`);
+        }
+        console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        throw err;
+    }
 }
 
 // ========== Main ==========
@@ -221,5 +241,11 @@ async function main() {
 
 main().catch(err => {
     console.error('❌ エラー:', err.message);
+    if (err.data !== undefined) {
+        console.error('Response data:', JSON.stringify(err.data, null, 2));
+    }
+    if (err.stack) {
+        console.error('Stack:', err.stack);
+    }
     process.exit(1);
 });
