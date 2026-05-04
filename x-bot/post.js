@@ -78,17 +78,10 @@ function getNextSeasonStart(date = new Date()) {
 }
 
 // ========== Hashtag generator ==========
-function getHashtags(season, dayOfWeek, slot) {
-    const base = ['#花粉', '#花粉症'];
-    const region = [`#${CONFIG.PREF_NAME}`, `#${CONFIG.CITY_NAME}`];
-    const seasonal = [season.tag];
-    // 曜日でローテーション（同じ tag を毎日使わない）
-    const rotating = [
-        '#花粉飛散情報', '#花粉対策', '#マスク生活', '#花粉日記',
-        '#花粉ピーク', '#花粉症あるある', '#今日の花粉',
-    ];
-    const dayTag = rotating[dayOfWeek % rotating.length];
-    return [...base, ...region, ...seasonal, dayTag].join(' ');
+// X 公式は本文中のハッシュタグを 1〜2 個に絞ることを推奨（多すぎはアルゴ評価ダウン）
+// 地域 + 季節の 2 軸でローカライズ性と検索性を確保
+function getHashtags(season /*, dayOfWeek, slot */) {
+    return [`#${CONFIG.CITY_NAME}`, season.tag].join(' ');
 }
 
 function getCTA(dayOfWeek, slot) {
@@ -221,6 +214,9 @@ function buildPost(yesterdayRows, todayRows) {
 
 // ========== Off-season post (low-pollen periods) ==========
 // 直近7日合計が非常に少ないときに「次のシーズンまで」型で配信
+// 注: 「現在の花粉カレンダー上のシーズン」と「実飛散の有無」は別物。
+//   - カレンダー上もオフ → "次の本格シーズンまで N 日"
+//   - カレンダー上はシーズン中だが実飛散ほぼなし → "現在◯◯期だが落ち着いている"
 function buildOffSeasonPost(recent7Total) {
     const now = new Date();
     const month = now.getMonth() + 1;
@@ -228,7 +224,7 @@ function buildOffSeasonPost(recent7Total) {
     const dow = now.getDay();
     const season = getCurrentSeason(now);
     const next = getNextSeasonStart(now);
-    const hashtags = getHashtags(season, dow, 'morning');
+    const hashtags = getHashtags(season);
     const tips = [
         '・空気清浄機のフィルター点検タイミング',
         '・寝具を週1で天日干し（オフ期だからこそ徹底）',
@@ -239,18 +235,28 @@ function buildOffSeasonPost(recent7Total) {
     ];
     const tipOfDay = tips[dow % tips.length];
 
+    // カレンダー上のシーズン状況に応じて見出しと本文を変える
+    let headline, situationLine;
+    if (season.isOff) {
+        headline = `朝のオフシーズン便り`;
+        situationLine = `📅 次の本格シーズン「${next.name}」まで約 ${next.days} 日`;
+    } else {
+        headline = `朝の小休止レポート`;
+        situationLine = `📉 現在「${season.name}」期間中ですが、飛散は落ち着いています`;
+    }
+
     const lines = [
-        `🌳 花粉みるみる｜${month}/${day} 朝のオフシーズン便り`,
+        `🌳 花粉みるみる｜${month}/${day} ${headline}`,
         ``,
         `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
-        `😊 直近7日の飛散量: ${recent7Total}個（ほぼなし）`,
+        `😊 直近7日の飛散量: ${recent7Total}個`,
         ``,
-        `📅 次の本格シーズン「${next.name}」まで約 ${next.days} 日`,
+        situationLine,
         ``,
         `🛡 今日のオフ期 tip:`,
         tipOfDay,
         ``,
-        `🔔 シーズン入りで毎日朝の花粉予報を再開します`,
+        `🔔 飛散が増えたら毎日の朝レポを自動再開します`,
         ``,
         hashtags,
         `🔗 ${CONFIG.SITE_URL}`,
@@ -295,6 +301,9 @@ async function postToX(text) {
 // env で上書き可能（季節調整・テスト用）
 const OFF_SEASON_7DAY_TOTAL = parseInt(process.env.OFF_SEASON_7DAY_TOTAL || '5', 10);
 const FORCE_OFFSEASON = process.env.FORCE_OFFSEASON === 'true';
+// データ欠損ガード: 直近7日(168時間)中、最低これだけ有効データがないと判定不能扱い
+// API 失敗時に validRows=[] → recent7Total=0 でオフシーズン誤投稿するのを防ぐ
+const MIN_RECENT_VALID_ROWS = parseInt(process.env.MIN_RECENT_VALID_ROWS || '24', 10);
 
 // ========== Main ==========
 async function main() {
@@ -316,9 +325,16 @@ async function main() {
     const recent7Total = recent7Rows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
 
     const slot = getTimeSlot();
+
+    // データ欠損ガード（FORCE_OFFSEASON 時はテスト目的なのでスキップ）
+    if (!FORCE_OFFSEASON && recent7Rows.length < MIN_RECENT_VALID_ROWS) {
+        console.log(`⚠️ 有効データ不足 (${recent7Rows.length}/${MIN_RECENT_VALID_ROWS} 行)。判定不能のため投稿スキップ`);
+        return;
+    }
+
     const isOffSeason = FORCE_OFFSEASON || recent7Total <= OFF_SEASON_7DAY_TOTAL;
 
-    console.log(`📊 直近7日合計: ${recent7Total}個 / オフシーズン: ${isOffSeason} / slot: ${slot}`);
+    console.log(`📊 直近7日合計: ${recent7Total}個 (有効${recent7Rows.length}行) / オフシーズン: ${isOffSeason} / slot: ${slot}`);
 
     let text;
     if (isOffSeason) {
