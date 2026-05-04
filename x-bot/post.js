@@ -79,9 +79,14 @@ function getNextSeasonStart(date = new Date()) {
 
 // ========== Hashtag generator ==========
 // X 公式は本文中のハッシュタグを 1〜2 個に絞ることを推奨（多すぎはアルゴ評価ダウン）
-// 地域 + 季節の 2 軸でローカライズ性と検索性を確保
+// 全国版サイトとして見えるよう、地域固定タグではなくカテゴリ + 季節タグに寄せる
 function getHashtags(season /*, dayOfWeek, slot */) {
-    return [`#${CONFIG.CITY_NAME}`, season.tag].join(' ');
+    return ['#花粉情報', season.tag].join(' ');
+}
+
+function getSiteUrl() {
+    // 投稿本文が特定地域の観測データなので、リンクはその地域を直接開く
+    return `${CONFIG.SITE_URL}?city=${CONFIG.CITY_CODE}`;
 }
 
 function getCTA(dayOfWeek, slot) {
@@ -207,7 +212,7 @@ function buildPost(yesterdayRows, todayRows) {
     }
 
     if (cta) lines.push(``, cta);
-    lines.push(``, hashtags, `🔗 ${CONFIG.SITE_URL}`);
+    lines.push(``, `全国の市区町村を選べます`, ``, hashtags, `🔗 ${getSiteUrl()}`);
 
     return lines.join('\n');
 }
@@ -258,8 +263,10 @@ function buildOffSeasonPost(recent7Total) {
         ``,
         `🔔 飛散が増えたら毎日の朝レポを自動再開します`,
         ``,
+        `全国の市区町村を選べます`,
+        ``,
         hashtags,
-        `🔗 ${CONFIG.SITE_URL}`,
+        `🔗 ${getSiteUrl()}`,
     ];
     return lines.join('\n');
 }
