@@ -9,6 +9,11 @@ on:
     # 夜 20:00 JST = 11:00 UTC
     - cron: '0 11 * * *'
   workflow_dispatch: # 手動実行用
+    inputs:
+      jitter_max_min:
+        description: '投稿前のランダム遅延（分）。手動検証時は 0 推奨'
+        required: false
+        default: '20'
 
 jobs:
   post:
@@ -34,6 +39,8 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           TZ: 'Asia/Tokyo'
+          # 手動実行は inputs で jitter を上書き（スケジュール実行は既定 20 分）
+          JITTER_MAX_MIN: ${{ github.event.inputs.jitter_max_min || '20' }}
           # 対象都市は post.js の CITIES を日替わりローテーション（CITY_* env は廃止）
           # 一時的に特定都市へ固定したい場合のみ FORCE_CITY を設定する
         run: node post.js
