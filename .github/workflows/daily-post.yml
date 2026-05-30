@@ -34,7 +34,6 @@ jobs:
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_TOKEN_SECRET: ${{ secrets.X_ACCESS_TOKEN_SECRET }}
           TZ: 'Asia/Tokyo'
-          CITY_CODE: '11203'
-          CITY_NAME: '川口市'
-          PREF_NAME: '埼玉県'
+          # 対象都市は post.js の CITIES を日替わりローテーション（CITY_* env は廃止）
+          # 一時的に特定都市へ固定したい場合のみ FORCE_CITY を設定する
         run: node post.js

@@ -1,6 +1,11 @@
 /**
  * 花粉みるみる — X自動投稿ボット
- * WxTech APIで花粉データ取得 → テンプレートで本文生成 → X API v2で投稿
+ * WxTech APIで花粉データ取得 → 全国主要都市をローテーションして本文生成 → X API v2で投稿
+ *
+ * 配信戦略（2026-05 改修）:
+ *  - 本文はその日の対象都市の「実データ」で毎回ユニーク化（コピペ判定回避＋地名で検索/クラスタに乗る）
+ *  - サイトへのリンクは本文に貼らず「自己リプライ」へ逃がす（無課金アカの本文リンクは配信が死ぬため）
+ *  - 起動時に 0〜N 分の jitter（固定時刻×固定内容の旧型botシグナルを消す）
  */
 
 const { TwitterApi } = require('twitter-api-v2');
@@ -10,12 +15,21 @@ require('dotenv').config();
 const CONFIG = {
     API_BASE: 'https://wxtech.weathernews.com/opendata/v1/pollen',
     NO_DATA: -9999,
-    CITY_CODE: process.env.CITY_CODE || '11203',
-    CITY_NAME: process.env.CITY_NAME || '川口市',
-    PREF_NAME: process.env.PREF_NAME || '埼玉県',
     SITE_URL: 'https://nexusmile884.github.io/kafun-mirumiru/',
     DRY_RUN: process.env.DRY_RUN === 'true',
 };
+
+// 全国主要都市ローテーション（各都市とも WxTech 観測局あり・データ実在を確認済み 2026-05）
+// 1日のうち朝/昼/夜は同一都市、日替わりで巡回（北海道→東北→関東→中部→関西→九州）
+const CITIES = [
+    { code: '01101', name: '札幌市中央区', pref: '北海道' },
+    { code: '04101', name: '仙台市青葉区', pref: '宮城県' },
+    { code: '13104', name: '新宿区',       pref: '東京都' },
+    { code: '14103', name: '横浜市西区',   pref: '神奈川県' },
+    { code: '23106', name: '名古屋市中区', pref: '愛知県' },
+    { code: '27128', name: '大阪市中央区', pref: '大阪府' },
+    { code: '40133', name: '福岡市中央区', pref: '福岡県' },
+];
 
 // ========== Level (daily total) ==========
 function getDailyLevel(total) {
@@ -42,64 +56,33 @@ function dayStart(d = new Date()) {
     return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-// ========== Season helpers ==========
-// 本州低地の代表的な花粉カレンダー
-const SEASONS = [
-    { startMonth: 2,  endMonth: 4,  name: 'スギ花粉',    tag: '#スギ花粉'    },
-    { startMonth: 3,  endMonth: 5,  name: 'ヒノキ花粉',  tag: '#ヒノキ花粉'  },
-    { startMonth: 5,  endMonth: 8,  name: 'イネ科花粉',  tag: '#イネ科花粉'  },
-    { startMonth: 8,  endMonth: 10, name: 'ブタクサ花粉', tag: '#ブタクサ花粉' },
-];
-
-function getCurrentSeason(date = new Date()) {
-    const m = date.getMonth() + 1;
-    const active = SEASONS.filter(s => m >= s.startMonth && m <= s.endMonth);
-    if (active.length === 0) {
-        return { name: 'オフシーズン', tag: '#花粉症対策', isOff: true };
-    }
-    return { ...active[active.length - 1], isOff: false };
+function dayOfYear(d = new Date()) {
+    return Math.floor((dayStart(d) - new Date(d.getFullYear(), 0, 0)) / 86400000);
 }
 
-function getNextSeasonStart(date = new Date()) {
-    const y = date.getFullYear();
-    const candidates = SEASONS
-        .map(s => ({ ...s, start: new Date(y, s.startMonth - 1, 1) }))
-        .filter(s => s.start > date);
-    if (candidates.length > 0) {
-        const next = candidates[0];
-        const days = Math.ceil((next.start - date) / 86400000);
-        return { name: next.name, days };
+// その日の対象都市を決定（日替わりローテ）。FORCE_CITY=コード でテスト上書き可
+function pickCity(d = new Date()) {
+    const force = process.env.FORCE_CITY;
+    if (force) {
+        return CITIES.find(c => c.code === force) || { code: force, name: force, pref: '' };
     }
-    // 翌年の最初のシーズン
-    const first = SEASONS[0];
-    const start = new Date(y + 1, first.startMonth - 1, 1);
-    const days = Math.ceil((start - date) / 86400000);
-    return { name: first.name, days };
+    return CITIES[dayOfYear(d) % CITIES.length];
 }
 
 // ========== Hashtag generator ==========
 // X 公式は本文中のハッシュタグを 1〜2 個に絞ることを推奨（多すぎはアルゴ評価ダウン）
-// 全国版サイトとして見えるよう、地域固定タグではなくカテゴリ + 季節タグに寄せる
-function getHashtags(season /*, dayOfWeek, slot */) {
-    return ['#花粉情報', season.tag].join(' ');
+function getHashtags() {
+    return '#花粉情報 #花粉症対策';
 }
 
-function getSiteUrl() {
-    // 投稿本文が特定地域の観測データなので、リンクはその地域を直接開く
-    return `${CONFIG.SITE_URL}?city=${CONFIG.CITY_CODE}`;
-}
-
-function getCTA(dayOfWeek, slot) {
-    // 週末 (土日) の朝のみフォロー誘導
-    if ((dayOfWeek === 0 || dayOfWeek === 6) && slot === 'morning') {
-        return '🔔 フォローで毎朝の花粉予報をお届け';
-    }
-    return null;
+// リンクは本文に貼らず「自己リプライ」に逃がす。本文で扱った都市を直接開くディープリンク
+function buildReply(city) {
+    return `全国どの市区町村でもチェックできます👇\n${CONFIG.SITE_URL}?city=${city.code}`;
 }
 
 // ========== Fetch pollen data ==========
-async function fetchPollen(start, end) {
-    const url = `${CONFIG.API_BASE}?citycode=${CONFIG.CITY_CODE}&start=${fmt(start)}&end=${fmt(end)}`;
+async function fetchPollen(cityCode, start, end) {
+    const url = `${CONFIG.API_BASE}?citycode=${cityCode}&start=${fmt(start)}&end=${fmt(end)}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`API error: ${res.status}`);
     const csv = await res.text();
@@ -121,45 +104,35 @@ function getTimeSlot() {
     return 'night';
 }
 
-function buildPost(yesterdayRows, todayRows) {
+function buildPost(city, yesterdayRows, todayRows) {
     const now = new Date();
     const month = now.getMonth() + 1;
     const day = now.getDate();
     const slot = getTimeSlot();
-    const dow = now.getDay();
-    const season = getCurrentSeason(now);
-    const hashtags = getHashtags(season, dow, slot);
-    const cta = getCTA(dow, slot);
+    const hashtags = getHashtags();
+    const place = `📍 ${city.pref} ${city.name}`;
 
-    // Yesterday stats
+    // 昨日の統計
     const yTotal = yesterdayRows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
     const yLevel = getDailyLevel(yTotal);
-
     let yPeakVal = 0, yPeakH = 0;
-    yesterdayRows.forEach(d => {
-        if (d.pollen > yPeakVal) { yPeakVal = d.pollen; yPeakH = d.date.getHours(); }
-    });
+    yesterdayRows.forEach(d => { if (d.pollen > yPeakVal) { yPeakVal = d.pollen; yPeakH = d.date.getHours(); } });
 
-    // Today stats
+    // 今日の統計
     const tTotal = todayRows.reduce((s, d) => s + Math.max(0, d.pollen), 0);
     const tLevel = getDailyLevel(tTotal);
-
     let tPeakVal = 0, tPeakH = 0;
-    todayRows.forEach(d => {
-        if (d.pollen > tPeakVal) { tPeakVal = d.pollen; tPeakH = d.date.getHours(); }
-    });
+    todayRows.forEach(d => { if (d.pollen > tPeakVal) { tPeakVal = d.pollen; tPeakH = d.date.getHours(); } });
 
-    // Forecast text based on yesterday
-    function forecastFromYesterday() {
-        if (yTotal <= 0) return '📊 今日も飛散は少ない見込みです';
-        if (yTotal <= 30) return '📊 今日も少なめの見込み。油断せずに';
-        if (yTotal <= 100) return '📊 今日もやや多い見込み。マスク推奨';
-        if (yTotal <= 200) return '📈 今日も多い見込み！しっかり対策を';
-        if (yTotal <= 400) return '📈 今日も非常に多い見込み！フル装備で';
-        return '🚨 今日も猛烈な飛散の見込み！外出注意';
-    }
+    // 昨日の飛散量からの今日の見込み
+    const forecast =
+        yTotal <= 0   ? '📊 今日も飛散は少ない見込みです' :
+        yTotal <= 30  ? '📊 今日も少なめの見込み。油断せずに' :
+        yTotal <= 100 ? '📊 今日もやや多い見込み。マスク推奨' :
+        yTotal <= 200 ? '📈 今日も多い見込み！しっかり対策を' :
+        yTotal <= 400 ? '📈 今日も非常に多い見込み！フル装備で' :
+                        '🚨 今日も猛烈な飛散の見込み！外出注意';
 
-    // Advice
     const advice = {
         'なし': '花粉はほぼなし。快適！🌤',
         '少ない': '油断せずに 🌱',
@@ -169,26 +142,23 @@ function buildPost(yesterdayRows, todayRows) {
         '猛烈': '⚠️ 不要不急の外出は控えて 🚫',
     };
 
-    let lines = [];
-
+    let lines;
     if (slot === 'morning') {
-        // === 朝のレポート ===
         lines = [
-            `🌳 花粉みるみる｜${month}/${day} 朝のレポート`,
+            `🌳 ${month}/${day} 朝の花粉レポート`,
             ``,
-            `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
+            place,
             `${yLevel.emoji} 昨日の飛散量: ${yTotal.toLocaleString()}個`,
             `${yLevel.bar} ${yLevel.label}`,
             `⏰ ピーク: ${yPeakH}時（${yPeakVal}個/時間）`,
             ``,
-            forecastFromYesterday(),
+            forecast,
         ];
     } else if (slot === 'noon') {
-        // === 昼の速報 ===
         lines = [
-            `🌳 花粉みるみる｜${month}/${day} 昼の速報`,
+            `🌳 ${month}/${day} 昼の花粉速報`,
             ``,
-            `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
+            place,
             `${tLevel.emoji} 午前の飛散量: ${tTotal.toLocaleString()}個`,
             `${tLevel.bar} ${tLevel.label}`,
             tPeakVal > 0 ? `⏰ ピーク: ${tPeakH}時（${tPeakVal}個/時間）` : `⏰ まだピークは来ていません`,
@@ -196,83 +166,44 @@ function buildPost(yesterdayRows, todayRows) {
             `午後の外出は${tTotal > 100 ? '要注意⚠️' : tTotal > 30 ? 'マスクを忘れずに😷' : '比較的安心です🌱'}`,
         ];
     } else {
-        // === 夜のまとめ ===
         lines = [
-            `🌳 花粉みるみる｜${month}/${day} 今日のまとめ`,
+            `🌳 ${month}/${day} 今日の花粉まとめ`,
             ``,
-            `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
+            place,
             `${tLevel.emoji} 今日の飛散量: ${tTotal.toLocaleString()}個`,
             `${tLevel.bar} ${tLevel.label}`,
             tPeakVal > 0 ? `⏰ ピーク: ${tPeakH}時（${tPeakVal}個/時間）` : `⏰ 飛散ピークなし`,
             ``,
             `📊 昨日比: ${yTotal > 0 ? (tTotal > yTotal ? `${Math.round(tTotal / yTotal * 100)}%（増加↑）` : `${Math.round(tTotal / yTotal * 100)}%（減少↓）`) : '—'}`,
-            ``,
             advice[tLevel.label] || advice['なし'],
         ];
     }
 
-    if (cta) lines.push(``, cta);
-    lines.push(``, `全国の市区町村を選べます`, ``, hashtags, `🔗 ${getSiteUrl()}`);
-
+    lines.push(``, hashtags);
     return lines.join('\n');
 }
 
 // ========== Off-season post (low-pollen periods) ==========
-// 直近7日合計が非常に少ないときに「次のシーズンまで」型で配信
-// 注: 「現在の花粉カレンダー上のシーズン」と「実飛散の有無」は別物。
-//   - カレンダー上もオフ → "次の本格シーズンまで N 日"
-//   - カレンダー上はシーズン中だが実飛散ほぼなし → "現在◯◯期だが落ち着いている"
-function buildOffSeasonPost(recent7Total) {
+// オフ判定都市の数値は出さず、全国版チェッカーへの誘導を中心にした軽量投稿
+function buildOffSeasonPost(city) {
     const now = new Date();
     const month = now.getMonth() + 1;
     const day = now.getDate();
-    const dow = now.getDay();
-    const season = getCurrentSeason(now);
-    const next = getNextSeasonStart(now);
-    const hashtags = getHashtags(season);
-    const tips = [
-        '・空気清浄機のフィルター点検タイミング',
-        '・寝具を週1で天日干し（オフ期だからこそ徹底）',
-        '・通年型アレルギーならハウスダスト対策の見直し',
-        '・耳鼻科で次シーズンに備えた減感作療法の相談',
-        '・室内の花粉持込を防ぐコート用ブラシを玄関に',
-        '・換気は朝晩の短時間（ピーク時間を避ける）',
-    ];
-    const tipOfDay = tips[dow % tips.length];
-
-    // カレンダー上のシーズン状況に応じて見出しと本文を変える
-    let headline, situationLine;
-    if (season.isOff) {
-        headline = `朝のオフシーズン便り`;
-        situationLine = `📅 次の本格シーズン「${next.name}」まで約 ${next.days} 日`;
-    } else {
-        headline = `朝の小休止レポート`;
-        situationLine = `📉 現在「${season.name}」期間中ですが、飛散は落ち着いています`;
-    }
-
+    const hashtags = getHashtags();
     const lines = [
-        `🌳 花粉みるみる｜${month}/${day} ${headline}`,
+        `🌳 ${month}/${day} 花粉オフシーズン便り`,
         ``,
-        `📍 ${CONFIG.CITY_NAME}（${CONFIG.PREF_NAME}）`,
-        `😊 直近7日の飛散量: ${recent7Total}個`,
-        ``,
-        situationLine,
-        ``,
-        `🛡 今日のオフ期 tip:`,
-        tipOfDay,
-        ``,
-        `🔔 飛散が増えたら毎日の朝レポを自動再開します`,
-        ``,
-        `全国の市区町村を選べます`,
+        `📍 ${city.pref} ${city.name} は飛散が落ち着いています`,
+        `今は全国的に花粉が少ない時期。`,
+        `住んでいる市区町村の今日・昨日・7日間の推移は、いつでもチェックできます。`,
         ``,
         hashtags,
-        `🔗 ${getSiteUrl()}`,
     ];
     return lines.join('\n');
 }
 
-// ========== Post to X ==========
-async function postToX(text) {
+// ========== Post to X (2段投稿: 本文 → 自己リプライにリンク) ==========
+async function postToX(text, replyText) {
     const client = new TwitterApi({
         appKey: process.env.X_API_KEY,
         appSecret: process.env.X_API_SECRET,
@@ -281,8 +212,18 @@ async function postToX(text) {
     });
 
     try {
-        const result = await client.v2.tweet(text);
-        return result;
+        const main = await client.v2.tweet(text);
+        let replyId = null;
+        if (replyText) {
+            try {
+                const r = await client.v2.reply(replyText, main.data.id);
+                replyId = r.data.id;
+            } catch (e) {
+                // リプライ失敗は本文投稿を無効化しない（リンクだけ欠ける）
+                console.error('⚠️ リンクのリプライ投稿に失敗（本文は投稿済み）:', e.message);
+            }
+        }
+        return { mainId: main.data.id, replyId };
     } catch (err) {
         console.error('━━━━━━━━━━ X API Error Detail ━━━━━━━━━━');
         if (err.code !== undefined) console.error(`HTTP code : ${err.code}`);
@@ -311,19 +252,29 @@ const FORCE_OFFSEASON = process.env.FORCE_OFFSEASON === 'true';
 // データ欠損ガード: 直近7日(168時間)中、最低これだけ有効データがないと判定不能扱い
 // API 失敗時に validRows=[] → recent7Total=0 でオフシーズン誤投稿するのを防ぐ
 const MIN_RECENT_VALID_ROWS = parseInt(process.env.MIN_RECENT_VALID_ROWS || '24', 10);
+// 投稿時刻の jitter（分）: 固定時刻×固定内容は旧型botシグナル。0〜N分のランダム遅延を入れる
+const JITTER_MAX_MIN = parseInt(process.env.JITTER_MAX_MIN || '20', 10);
 
 // ========== Main ==========
 async function main() {
+    const city = pickCity();
     console.log('🌳 花粉みるみる X Auto-Post');
-    console.log(`📍 ${CONFIG.CITY_NAME} (${CONFIG.CITY_CODE})`);
+    console.log(`📍 ${city.pref} ${city.name} (${city.code})`);
     console.log(`🔧 Dry run: ${CONFIG.DRY_RUN}`);
+
+    // 投稿時刻の jitter（DRY_RUN 時は待たない）
+    if (!CONFIG.DRY_RUN && JITTER_MAX_MIN > 0) {
+        const ms = Math.floor(Math.random() * JITTER_MAX_MIN * 60 * 1000);
+        console.log(`⏳ jitter: ${Math.round(ms / 1000)}秒待機してから投稿`);
+        await new Promise(r => setTimeout(r, ms));
+    }
     console.log('');
 
     // Fetch data: 直近7日 + 今日
     const today = dayStart();
     const yesterday = addDays(today, -1);
     const sevenDaysAgo = addDays(today, -7);
-    const data = await fetchPollen(sevenDaysAgo, today);
+    const data = await fetchPollen(city.code, sevenDaysAgo, today);
 
     const validRows = data.filter(d => d.pollen !== CONFIG.NO_DATA);
     const yesterdayRows = validRows.filter(d => d.date >= yesterday && d.date < today);
@@ -340,30 +291,33 @@ async function main() {
     }
 
     const isOffSeason = FORCE_OFFSEASON || recent7Total <= OFF_SEASON_7DAY_TOTAL;
-
     console.log(`📊 直近7日合計: ${recent7Total}個 (有効${recent7Rows.length}行) / オフシーズン: ${isOffSeason} / slot: ${slot}`);
 
     let text;
     if (isOffSeason) {
-        // オフシーズン中は朝のみ「次のシーズンまで」型を投稿、他はスキップ
+        // オフシーズン中は朝のみ軽量投稿、昼/夜はスキップ（クレジット節約）
         if (slot !== 'morning') {
             console.log('💤 オフシーズンの昼/夜枠は投稿スキップ（クレジット節約）');
             return;
         }
-        text = buildOffSeasonPost(recent7Total);
+        text = buildOffSeasonPost(city);
     } else {
         if (yesterdayRows.length === 0) {
             console.log('⚠️ 昨日のデータがありません。投稿をスキップします。');
             return;
         }
-        text = buildPost(yesterdayRows, todayRows);
+        text = buildPost(city, yesterdayRows, todayRows);
     }
+
+    const replyText = buildReply(city);
 
     console.log('📝 投稿内容:');
     console.log('─'.repeat(40));
     console.log(text);
+    console.log('  ↳（リプライ）');
+    console.log(replyText);
     console.log('─'.repeat(40));
-    console.log(`📏 文字数: ${text.length}/280`);
+    console.log(`📏 本文文字数: ${text.length}/280`);
 
     if (CONFIG.DRY_RUN) {
         console.log('\n✅ ドライラン完了（実際には投稿されていません）');
@@ -376,9 +330,9 @@ async function main() {
         process.exit(1);
     }
 
-    const result = await postToX(text);
-    console.log(`\n✅ 投稿完了! Tweet ID: ${result.data.id}`);
-    console.log(`🔗 https://x.com/kafun_mirumiru/status/${result.data.id}`);
+    const { mainId, replyId } = await postToX(text, replyText);
+    console.log(`\n✅ 投稿完了! Tweet ID: ${mainId}${replyId ? ` / リプライ: ${replyId}` : ' / リプライ失敗'}`);
+    console.log(`🔗 https://x.com/kafun_mirumiru/status/${mainId}`);
 }
 
 main().catch(err => {
